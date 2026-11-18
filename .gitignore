@@ -1,0 +1,33 @@
+# Environment & secrets
+.env
+*.env
+
+# Python / Backend
+**/venv/
+**/.venv/
+**/__pycache__/
+*.pyc
+backend/uploads/
+
+# Flutter / Frontend build & tool outputs
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/coverage/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/app/debug/
+frontend/android/app/profile/
+frontend/android/app/release/
+
+# IDE & OS
+.DS_Store
+Thumbs.db
+*.iml
+*.ipr
+*.iws
+.idea/
