@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kids_ai_tutor/main.dart';
 import 'package:kids_ai_tutor/models/tutor_models.dart';
+import 'package:kids_ai_tutor/services/app_storage.dart';
+import 'package:kids_ai_tutor/services/edge_tts_drm.dart';
 import 'package:kids_ai_tutor/services/gemini_service.dart';
 import 'package:kids_ai_tutor/services/google_auth_service.dart';
 import 'package:kids_ai_tutor/services/lesson_cache_service.dart';
@@ -308,5 +311,175 @@ void main() {
     });
     expect(doc.ownerTag, tag);
     expect(doc.displayName, 'كتاب القراءة.pdf');
+  });
+
+  test('GeminiTtsService provides Live AI voices and builds valid Live payloads', () {
+    expect(GeminiTtsService.availableVoices.containsKey('Puck'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('Kore'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('Zephyr'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('Aoede'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('Charon'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('FastArabic'), isTrue);
+
+    final setupPayload = GeminiTtsService.buildLiveSetupPayload(
+      model: 'gemini-3.8-live',
+      voiceName: 'Puck',
+    );
+    final setup = setupPayload['setup'] as Map<String, dynamic>;
+    expect(setup['model'], 'models/gemini-3.8-live');
+    final genCfg = setup['generationConfig'] as Map<String, dynamic>;
+    expect(genCfg['responseModalities'], ['AUDIO']);
+    final voiceCfg = (genCfg['speechConfig']
+        as Map<String, dynamic>)['voiceConfig'] as Map<String, dynamic>;
+    expect(
+      (voiceCfg['prebuiltVoiceConfig'] as Map<String, dynamic>)['voiceName'],
+      'Puck',
+    );
+
+    final speakPayload = GeminiTtsService.buildLiveSpeakPayload(
+      'أهلاً "يا" صديقي\n   في الدرس!',
+    );
+    final cc = speakPayload['clientContent'] as Map<String, dynamic>;
+    expect(cc['turnComplete'], isTrue);
+    final turns = cc['turns'] as List<dynamic>;
+    final partText =
+        ((turns.first as Map<String, dynamic>)['parts'] as List<dynamic>)
+            .first['text'] as String;
+    expect(partText, contains("أهلاً 'يا' صديقي في الدرس!"));
+  });
+
+  test('EdgeTtsDrm matches v2 Sec-MS-GEC reference vectors and builds fast Arabic SSML', () {
+    expect(
+      EdgeTtsDrm.generateSecMsGecV2(unixTimestampSeconds: 1700000000),
+      '2CD23A2CA0B2595A-F3C846C370E05F9CC83ACC5F995C5F5D87A4D0F14CE8936A0F902E64099E38A2',
+    );
+    expect(
+      EdgeTtsDrm.generateSecMsGecV2(unixTimestampSeconds: 1760000000),
+      '6D50DDDB91812C33-DD68EFB01898B0750C9797D51A5FF93471DFDAE6888A1039D532CBDCCE54545D',
+    );
+
+    expect(GeminiTtsService.availableVoices.containsKey('FastArabic'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('TaimArabic'), isTrue);
+    expect(GeminiTtsService.availableVoices.containsKey('SalmaArabic'), isTrue);
+    expect(
+      GeminiTtsService.availableVoices.containsKey('ShakirArabic'),
+      isFalse,
+    );
+    expect(GeminiTtsService.isEdgeArabicVoice('FastArabic'), isTrue);
+    expect(GeminiTtsService.isEdgeArabicVoice('TaimArabic'), isTrue);
+    expect(GeminiTtsService.isEdgeArabicVoice('SalmaArabic'), isTrue);
+    expect(GeminiTtsService.isEdgeArabicVoice('Puck'), isFalse);
+
+    final defaultSsml = GeminiTtsService.buildEdgeSsml(
+      'أهلاً 🎉 حُرُوفٌ، جُودٌ & <مرحباً> "بالدرس"!',
+    );
+    expect(defaultSsml, contains("xml:lang='ar-SA'"));
+    expect(defaultSsml, contains("voice name='ar-SA-HamedNeural'"));
+    expect(defaultSsml, contains("<prosody pitch='+0Hz' rate='+0%'>"));
+    expect(
+      defaultSsml,
+      contains('أهلاً حُرُوفٌ، جُودٌ &amp; &lt;مرحباً&gt; &quot;بالدرس&quot;!'),
+    );
+
+    final taimSsml = GeminiTtsService.buildEdgeSsml(
+      'مرحباً!',
+      voice: 'ar-JO-TaimNeural',
+    );
+    expect(taimSsml, contains("xml:lang='ar-JO'"));
+    expect(taimSsml, contains("voice name='ar-JO-TaimNeural'"));
+
+    final salmaSsml = GeminiTtsService.buildEdgeSsml(
+      'أهلاً!',
+      voice: 'ar-EG-SalmaNeural',
+    );
+    expect(salmaSsml, contains("xml:lang='ar-EG'"));
+    expect(salmaSsml, contains("voice name='ar-EG-SalmaNeural'"));
+  });
+
+  test('GeminiTtsService.splitForContinuousBackupSpeech keeps medium text intact and splits very long text sequentially', () {
+    const mediumText =
+        'أهلاً بك يا صديقي الممتاز! اليوم سنتعلم مد الواو في كلمات جميلة: حُرُوفٌ، جُودٌ، قُبُورٌ، عُمُومٌ. '
+        'اقرأ كل كلمة بصوت واضح مع التشكيل الصحيح!';
+    final mediumSplit = GeminiTtsService.splitForContinuousBackupSpeech(mediumText);
+    expect(mediumSplit.leadIn, mediumText);
+    expect(mediumSplit.restChunks, isEmpty);
+
+    const longText =
+        'أهلاً بك يا صديقي الممتاز! اليوم سنتعلم الدرس الأول في مد الواو خطوة بخطوة مع أمثلة جميلة وواضحة جداً للجميع. '
+        'عندما نضع حرف الواو الساكن بعد الحرف المضموم يطول صوته بوضوح تام في النطق العربي السليم مثل كلمات: نُورٌ، حُورٌ، سُرُورٌ، حُرُوفٌ، جُودٌ، قُبُورٌ، عُمُومٌ. '
+        'تدرب الآن على قراءة كل كلمة بصوت واضح ومسموع مع الانتباه للحركات والتشكيل الصحيح على كل حرف من الكلمات، '
+        'ثم فكر بهدوء واختر الإجابة الصحيحة في السؤال التفاعلي التالي لتنتقل معنا مباشرة إلى الفقرة الجديدة في الدرس!';
+    final longSplit = GeminiTtsService.splitForContinuousBackupSpeech(longText);
+    expect(longSplit.leadIn.length, inInclusiveRange(120, 245));
+    expect(longSplit.restChunks, isNotEmpty);
+    for (final c in longSplit.restChunks) {
+      expect(c.length, lessThanOrEqualTo(365));
+    }
+    final combined = '${longSplit.leadIn} ${longSplit.restChunks.join(' ')}';
+    expect(combined, contains('أهلاً بك يا صديقي الممتاز!'));
+    expect(combined, contains('نُورٌ، حُورٌ، سُرُورٌ'));
+    expect(combined, contains('الفقرة الجديدة في الدرس!'));
+  });
+
+  testWidgets('Mobile TutorHomeScreen layout and Drawer fit within 360px viewport without overflow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: TutorHomeScreen(
+            session: const UserSession(
+              email: 'test@gmail.com',
+              displayName: 'اختبار',
+              apiKey: '',
+            ),
+            authService: GoogleAuthService(),
+            onSessionUpdated: (_) {},
+            onSignOut: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.menu_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('صوت المعلم:'), findsOneWidget);
+  });
+
+  test('AppStorage.getRootDir respects overrideDir and androidAppDataDir', () {
+    final tempDir = Directory.systemTemp.createTempSync('app_storage_test_');
+    final previousAndroidDir = AppStorage.androidAppDataDir;
+    addTearDown(() {
+      AppStorage.androidAppDataDir = previousAndroidDir;
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    final overrideResult = AppStorage.getRootDir(
+      overrideDir: tempDir,
+      subDir: 'tts_cache',
+    );
+    expect(
+      overrideResult.path,
+      '${tempDir.path}${Platform.pathSeparator}tts_cache',
+    );
+    expect(overrideResult.existsSync(), isTrue);
+
+    AppStorage.androidAppDataDir = tempDir.path;
+    final androidRoot = AppStorage.getRootDir();
+    expect(
+      androidRoot.path,
+      '${tempDir.path}${Platform.pathSeparator}.kids_ai_tutor',
+    );
+    expect(androidRoot.existsSync(), isTrue);
   });
 }

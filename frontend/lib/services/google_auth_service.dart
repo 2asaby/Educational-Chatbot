@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/tutor_models.dart';
+import 'app_storage.dart';
 import 'gemini_service.dart';
 
 class DetectedGoogleAccount {
@@ -63,21 +64,7 @@ class GoogleAuthService {
   GoogleAuthService({this.overrideStorageDir});
 
   File _getStorageFile() {
-    if (overrideStorageDir != null) {
-      if (!overrideStorageDir!.existsSync()) {
-        overrideStorageDir!.createSync(recursive: true);
-      }
-      return File(
-        '${overrideStorageDir!.path}${Platform.pathSeparator}session.json',
-      );
-    }
-    final home = Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        Directory.systemTemp.path;
-    final dir = Directory('$home${Platform.pathSeparator}.kids_ai_tutor');
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
-    }
+    final dir = AppStorage.getRootDir(overrideDir: overrideStorageDir);
     return File('${dir.path}${Platform.pathSeparator}session.json');
   }
 

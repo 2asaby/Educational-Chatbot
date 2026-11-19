@@ -80,9 +80,7 @@ class _RootGateScreenState extends State<RootGateScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_session == null) {
       return GoogleLoginScreen(
@@ -389,10 +387,7 @@ class _GoogleLoginScreenState extends State<GoogleLoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const Center(
-                        child: Text(
-                          '🤖✨',
-                          style: TextStyle(fontSize: 54),
-                        ),
+                        child: Text('🤖✨', style: TextStyle(fontSize: 54)),
                       ),
                       const SizedBox(height: 12),
                       const Text(
@@ -430,7 +425,9 @@ class _GoogleLoginScreenState extends State<GoogleLoginScreen> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const CircleAvatar(
                                 radius: 12,
@@ -561,8 +558,9 @@ class _GoogleLoginScreenState extends State<GoogleLoginScreen> {
                           controller: _nameController,
                           decoration: InputDecoration(
                             labelText: 'اسم الطالب',
-                            prefixIcon:
-                                const Icon(Icons.face_retouching_natural),
+                            prefixIcon: const Icon(
+                              Icons.face_retouching_natural,
+                            ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -677,11 +675,13 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
   bool _uploadingPdf = false;
   bool _askingTutor = false;
   bool _prefetchingNext = false;
+  String? _inFlightPrefetchKey;
+  Future<TutorResponse?>? _inFlightPrefetchFuture;
   String? _statusBanner;
 
   // Voice / TTS State
   bool _autoSpeak = true;
-  String _selectedVoice = 'FastArabic';
+  String _selectedVoice = 'Puck';
   bool _generatingTts = false;
   bool _playingTts = false;
   String? _activeSpeechId;
@@ -712,6 +712,10 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     super.initState();
     _restoreCachedLessonsImmediately();
     _refreshUploadedPdfs();
+    _ttsService.prewarmConnection(
+      session: widget.session,
+      voiceName: _selectedVoice,
+    );
   }
 
   @override
@@ -752,9 +756,8 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
 
     _documents = cachedDocs;
     if (cachedDocs.isNotEmpty) {
-      _selectedDoc = cachedDocs
-              .where((d) => d.name == lastSelected)
-              .firstOrNull ??
+      _selectedDoc =
+          cachedDocs.where((d) => d.name == lastSelected).firstOrNull ??
           cachedDocs.first;
     } else {
       _selectedDoc = null;
@@ -763,7 +766,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
 
   @override
   void dispose() {
-    _ttsService.stopPlayback();
+    _ttsService.dispose();
     _questionController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -877,17 +880,18 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
         }
 
         // Sync any newly uploaded PDFs from this same Gmail user on another device (Mobile <-> Windows)
-        final otherUserDocs =
-            _lessonCache.loadDocNamesOwnedByOtherUsers(userEmail);
+        final otherUserDocs = _lessonCache.loadDocNamesOwnedByOtherUsers(
+          userEmail,
+        );
         final deletedDocs = _lessonCache.loadDeletedDocNames(userEmail);
         for (final active in activeDocs) {
           if (seenNames.contains(active.name) ||
               deletedDocs.contains(active.name)) {
             continue;
           }
-          final belongsToMe = active.ownerTag == myTag ||
-              (active.ownerTag == null &&
-                  !otherUserDocs.contains(active.name));
+          final belongsToMe =
+              active.ownerTag == myTag ||
+              (active.ownerTag == null && !otherUserDocs.contains(active.name));
           if (belongsToMe) {
             merged.insert(0, active.copyWith(ownerEmail: userEmail));
             seenNames.add(active.name);
@@ -901,14 +905,12 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
         _documents = nextDocs;
         if (_selectedDoc == null && nextDocs.isNotEmpty) {
           final lastSelected = _lessonCache.loadLastSelectedDocName(userEmail);
-          _selectedDoc = nextDocs
-                  .where((d) => d.name == lastSelected)
-                  .firstOrNull ??
+          _selectedDoc =
+              nextDocs.where((d) => d.name == lastSelected).firstOrNull ??
               nextDocs.first;
         } else if (_selectedDoc != null) {
-          _selectedDoc = nextDocs
-                  .where((d) => d.name == _selectedDoc!.name)
-                  .firstOrNull ??
+          _selectedDoc =
+              nextDocs.where((d) => d.name == _selectedDoc!.name).firstOrNull ??
               (nextDocs.isNotEmpty ? nextDocs.first : null);
         }
       });
@@ -1082,10 +1084,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     await _stopSpeaking();
     final userEmail = widget.session.email;
 
-    await _lessonCache.deleteDocumentForUser(
-      userEmail: userEmail,
-      doc: doc,
-    );
+    await _lessonCache.deleteDocumentForUser(userEmail: userEmail, doc: doc);
     // Best-effort remote deletion on Gemini Files API
     _geminiService.deleteUploadedPdf(
       session: widget.session,
@@ -1103,15 +1102,27 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     });
   }
 
+  String _buildPrefetchKey(String docName, int lastPage, int lastPart) =>
+      '$docName::$lastPage::$lastPart';
+
+  bool _isNextParagraphPresetPrompt(String text) {
+    final trimmed = text.trim();
+    return trimmed == 'اشرح لي الفقرة التالية في الملف واختبرني فيها' ||
+        trimmed ==
+            'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها';
+  }
+
   /// Silently prepares the next lesson paragraph/page in the background
   /// while the child reads and answers the current quiz, so clicking "Next" is instant!
   Future<void> _prefetchNextLessonStepInBackground(
     UploadedPdfDocument doc,
     List<ChatEntry> currentHistory,
   ) async {
-    if (_prefetchingNext) return;
     final lastPage = _getLastCoveredPage(currentHistory);
     final lastPart = _getLastCoveredPart(currentHistory);
+    final prefetchKey = _buildPrefetchKey(doc.name, lastPage, lastPart);
+    if (_prefetchingNext && _inFlightPrefetchKey == prefetchKey) return;
+
     const nextPrompt = 'اشرح لي الفقرة التالية في الملف واختبرني فيها';
     const nextQuizPrompt =
         'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها';
@@ -1125,32 +1136,46 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     if (alreadyCached != null) return;
 
     _prefetchingNext = true;
-    try {
-      final prefetchedReply = await _geminiService.askTutor(
-        session: widget.session,
-        pdfDocument: doc,
-        studentMessage: nextPrompt,
-        previousHistory: currentHistory,
-      );
-      _lessonCache.savePreparedResponse(
-        docName: doc.name,
-        lastCoveredPage: lastPage,
-        lastCoveredPart: lastPart,
-        prompt: nextPrompt,
-        response: prefetchedReply,
-      );
-      _lessonCache.savePreparedResponse(
-        docName: doc.name,
-        lastCoveredPage: lastPage,
-        lastCoveredPart: lastPart,
-        prompt: nextQuizPrompt,
-        response: prefetchedReply,
-      );
-    } catch (_) {
-      // Silent background prefetch
-    } finally {
-      _prefetchingNext = false;
+    _inFlightPrefetchKey = prefetchKey;
+
+    Future<TutorResponse?> runPrefetch() async {
+      try {
+        final prefetchedReply = await _geminiService.askTutor(
+          session: widget.session,
+          pdfDocument: doc,
+          studentMessage: nextPrompt,
+          previousHistory: currentHistory,
+        );
+        _lessonCache.savePreparedResponse(
+          docName: doc.name,
+          lastCoveredPage: lastPage,
+          lastCoveredPart: lastPart,
+          prompt: nextPrompt,
+          response: prefetchedReply,
+        );
+        _lessonCache.savePreparedResponse(
+          docName: doc.name,
+          lastCoveredPage: lastPage,
+          lastCoveredPart: lastPart,
+          prompt: nextQuizPrompt,
+          response: prefetchedReply,
+        );
+        return prefetchedReply;
+      } catch (_) {
+        // Silent background prefetch
+        return null;
+      } finally {
+        if (_inFlightPrefetchKey == prefetchKey) {
+          _prefetchingNext = false;
+          _inFlightPrefetchKey = null;
+          _inFlightPrefetchFuture = null;
+        }
+      }
     }
+
+    final future = runPrefetch();
+    _inFlightPrefetchFuture = future;
+    await future;
   }
 
   Future<void> _sendQuestion([String? presetQuestion]) async {
@@ -1223,61 +1248,83 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     });
     _scrollToBottom();
 
+    if (_autoSpeak) {
+      _ttsService.prewarmConnection(
+        session: widget.session,
+        voiceName: _selectedVoice,
+      );
+    }
+
     try {
       TutorResponse reply;
-      try {
-        reply = await _geminiService.askTutor(
-          session: widget.session,
-          pdfDocument: currentDoc,
-          studentMessage: text,
-          previousHistory: historySnapshot,
-        );
-      } catch (e) {
-        final errStr = e.toString();
-        final isExpiredOrMissing =
-            errStr.contains('(403)') || errStr.contains('(404)');
-        final backupPath = currentDoc.localBackupPath;
-        if (isExpiredOrMissing &&
-            backupPath != null &&
-            File(backupPath).existsSync()) {
-          final backupBytes = await File(backupPath).readAsBytes();
-          final reuploaded = await _geminiService.uploadPdfBytes(
-            session: widget.session,
-            filename: currentDoc.displayName,
-            bytes: backupBytes,
-          );
-          final refreshedDoc = reuploaded.copyWith(
-            localBackupPath: backupPath,
-            ownerEmail: userEmail,
-          );
-          final oldDocName = currentDoc.name;
-          _lessonCache.replaceExpiredDocId(
-            userEmail: userEmail,
-            oldDocName: oldDocName,
-            newDoc: refreshedDoc,
-          );
-          final oldMessages = _historyByDoc.remove(oldDocName);
-          if (oldMessages != null) {
-            _historyByDoc[refreshedDoc.name] = oldMessages;
-          }
-          if (mounted) {
-            setState(() {
-              _documents = _documents
-                  .map((d) => d.name == oldDocName ? refreshedDoc : d)
-                  .toList();
-              _selectedDoc = refreshedDoc;
-            });
-          }
-          currentDoc = refreshedDoc;
-
+      final currentPrefetchKey = _buildPrefetchKey(
+        currentDoc.name,
+        lastPage,
+        lastPart,
+      );
+      TutorResponse? joinedPrefetch;
+      if (_isNextParagraphPresetPrompt(text) &&
+          _inFlightPrefetchKey == currentPrefetchKey &&
+          _inFlightPrefetchFuture != null) {
+        joinedPrefetch = await _inFlightPrefetchFuture;
+      }
+      if (joinedPrefetch != null) {
+        reply = joinedPrefetch;
+      } else {
+        try {
           reply = await _geminiService.askTutor(
             session: widget.session,
             pdfDocument: currentDoc,
             studentMessage: text,
             previousHistory: historySnapshot,
           );
-        } else {
-          rethrow;
+        } catch (e) {
+          final errStr = e.toString();
+          final isExpiredOrMissing =
+              errStr.contains('(403)') || errStr.contains('(404)');
+          final backupPath = currentDoc.localBackupPath;
+          if (isExpiredOrMissing &&
+              backupPath != null &&
+              File(backupPath).existsSync()) {
+            final backupBytes = await File(backupPath).readAsBytes();
+            final reuploaded = await _geminiService.uploadPdfBytes(
+              session: widget.session,
+              filename: currentDoc.displayName,
+              bytes: backupBytes,
+            );
+            final refreshedDoc = reuploaded.copyWith(
+              localBackupPath: backupPath,
+              ownerEmail: userEmail,
+            );
+            final oldDocName = currentDoc.name;
+            _lessonCache.replaceExpiredDocId(
+              userEmail: userEmail,
+              oldDocName: oldDocName,
+              newDoc: refreshedDoc,
+            );
+            final oldMessages = _historyByDoc.remove(oldDocName);
+            if (oldMessages != null) {
+              _historyByDoc[refreshedDoc.name] = oldMessages;
+            }
+            if (mounted) {
+              setState(() {
+                _documents = _documents
+                    .map((d) => d.name == oldDocName ? refreshedDoc : d)
+                    .toList();
+                _selectedDoc = refreshedDoc;
+              });
+            }
+            currentDoc = refreshedDoc;
+
+            reply = await _geminiService.askTutor(
+              session: widget.session,
+              pdfDocument: currentDoc,
+              studentMessage: text,
+              previousHistory: historySnapshot,
+            );
+          } else {
+            rethrow;
+          }
         }
       }
 
@@ -1372,16 +1419,15 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
       drawer: isWide
           ? null
           : Drawer(
-              width: 325,
-              child: SafeArea(
-                child: _buildSidebarPanel(inDrawer: true),
-              ),
+              width: width < 380 ? width * 0.85 : 325,
+              child: SafeArea(child: _buildSidebarPanel(inDrawer: true)),
             ),
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         automaticallyImplyLeading: false,
+        titleSpacing: isCompact ? 4 : null,
         leading: isWide
             ? null
             : IconButton(
@@ -1391,7 +1437,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
               ),
         title: Row(
           children: [
-            const Text('🎓 ', style: TextStyle(fontSize: 22)),
+            const Text('🎓 ', style: TextStyle(fontSize: 20)),
             Expanded(
               child: Text(
                 'المعلم الذكي للأطفال',
@@ -1399,51 +1445,97 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: isCompact ? 15 : 20,
+                  fontSize: isCompact ? 14 : 20,
                   color: const Color(0xFF1E1B4B),
                 ),
               ),
             ),
             if (_playingTts || _generatingTts)
               Padding(
-                padding: const EdgeInsets.only(left: 6),
+                padding: EdgeInsets.only(left: isCompact ? 4 : 6),
                 child: FilledButton.tonalIcon(
                   onPressed: _stopSpeaking,
                   style: FilledButton.styleFrom(
+                    visualDensity: isCompact
+                        ? VisualDensity.compact
+                        : VisualDensity.standard,
+                    padding: isCompact
+                        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 6)
+                        : null,
+                    minimumSize: isCompact ? Size.zero : null,
+                    tapTargetSize: isCompact
+                        ? MaterialTapTargetSize.shrinkWrap
+                        : null,
                     backgroundColor: Colors.red.shade50,
                     foregroundColor: Colors.red.shade700,
                   ),
-                  icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                  icon: Icon(
+                    Icons.stop_circle_outlined,
+                    size: isCompact ? 16 : 18,
+                  ),
                   label: Text(
-                    _generatingTts ? 'جاري تجهيز الصوت...' : 'إيقاف الصوت',
+                    isCompact
+                        ? (_generatingTts ? 'تجهيز...' : 'إيقاف')
+                        : (_generatingTts
+                              ? 'جاري تجهيز الصوت...'
+                              : 'إيقاف الصوت'),
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
               ),
-            FilterChip(
-              selected: _autoSpeak,
-              onSelected: (val) {
-                setState(() => _autoSpeak = val);
-                if (!val) _stopSpeaking();
-              },
-              avatar: Icon(
-                _autoSpeak ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                size: 16,
-                color: _autoSpeak ? const Color(0xFF4F46E5) : Colors.grey,
+            if (isCompact)
+              IconButton(
+                tooltip: _autoSpeak
+                    ? 'النطق التلقائي: مفعل'
+                    : 'النطق التلقائي: صامت',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                onPressed: () {
+                  setState(() => _autoSpeak = !_autoSpeak);
+                  if (!_autoSpeak) _stopSpeaking();
+                },
+                icon: Icon(
+                  _autoSpeak
+                      ? Icons.volume_up_rounded
+                      : Icons.volume_off_rounded,
+                  size: 20,
+                  color: _autoSpeak ? const Color(0xFF4F46E5) : Colors.grey,
+                ),
+              )
+            else ...[
+              FilterChip(
+                selected: _autoSpeak,
+                onSelected: (val) {
+                  setState(() => _autoSpeak = val);
+                  if (!val) _stopSpeaking();
+                },
+                avatar: Icon(
+                  _autoSpeak
+                      ? Icons.volume_up_rounded
+                      : Icons.volume_off_rounded,
+                  size: 16,
+                  color: _autoSpeak ? const Color(0xFF4F46E5) : Colors.grey,
+                ),
+                label: Text(
+                  _autoSpeak ? 'النطق التلقائي: مفعل' : 'النطق التلقائي: صامت',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
-              label: Text(
-                isCompact
-                    ? (_autoSpeak ? 'صوت' : 'صامت')
-                    : (_autoSpeak ? 'النطق التلقائي: مفعل' : 'النطق التلقائي: صامت'),
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            const SizedBox(width: 6),
+              const SizedBox(width: 6),
+            ],
             if (_messages.isNotEmpty)
               IconButton(
                 tooltip: 'بدء درس جديد',
+                visualDensity: isCompact
+                    ? VisualDensity.compact
+                    : VisualDensity.standard,
+                padding: isCompact ? EdgeInsets.zero : null,
+                constraints: isCompact
+                    ? const BoxConstraints(minWidth: 34, minHeight: 34)
+                    : null,
                 onPressed: _askingTutor ? null : _clearCurrentChat,
-                icon: const Icon(Icons.restart_alt_rounded),
+                icon: const Icon(Icons.restart_alt_rounded, size: 20),
               ),
             if (isWide)
               Chip(
@@ -1462,13 +1554,31 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
               ),
             IconButton(
               tooltip: 'إعدادات الصوت والحساب',
+              visualDensity: isCompact
+                  ? VisualDensity.compact
+                  : VisualDensity.standard,
+              padding: isCompact ? EdgeInsets.zero : null,
+              constraints: isCompact
+                  ? const BoxConstraints(minWidth: 34, minHeight: 34)
+                  : null,
               onPressed: _showAccountSettingsDialog,
-              icon: const Icon(Icons.settings_outlined),
+              icon: const Icon(Icons.settings_outlined, size: 20),
             ),
             IconButton(
               tooltip: 'تسجيل الخروج',
+              visualDensity: isCompact
+                  ? VisualDensity.compact
+                  : VisualDensity.standard,
+              padding: isCompact ? EdgeInsets.zero : null,
+              constraints: isCompact
+                  ? const BoxConstraints(minWidth: 34, minHeight: 34)
+                  : null,
               onPressed: widget.onSignOut,
-              icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              icon: const Icon(
+                Icons.logout_rounded,
+                color: Colors.redAccent,
+                size: 20,
+              ),
             ),
           ],
         ),
@@ -1476,14 +1586,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
       body: isWide
           ? Row(
               children: [
-                SizedBox(
-                  width: 335,
-                  child: _buildSidebarPanel(),
-                ),
+                SizedBox(width: 335, child: _buildSidebarPanel()),
                 const VerticalDivider(width: 1),
-                Expanded(
-                  child: _buildChatSection(),
-                ),
+                Expanded(child: _buildChatSection()),
               ],
             )
           : Column(
@@ -1499,7 +1604,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     final emotionColor = _emotionColor(_currentEmotion);
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(inDrawer ? 14 : 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1541,15 +1646,12 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                   _playingTts
                       ? '🔊 المعلم يتحدث ويشرح لك الدرس بصوته الآن...'
                       : _generatingTts
-                          ? '⏳ جاري تجهيز صوت المعلم الذكي...'
-                          : _askingTutor
-                              ? 'المعلم يقرأ الصفحة التالية ويجهز لك شرحاً جديداً...'
-                              : 'أنا جاهز لشرح درسك اليوم بالصوت والصورة!',
+                      ? '⏳ جاري تجهيز صوت المعلم الذكي...'
+                      : _askingTutor
+                      ? 'المعلم يقرأ الصفحة التالية ويجهز لك شرحاً جديداً...'
+                      : 'أنا جاهز لشرح درسك اليوم بالصوت والصورة!',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
               ],
             ),
@@ -1594,6 +1696,10 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                       onChanged: (val) {
                         if (val != null) {
                           setState(() => _selectedVoice = val);
+                          _ttsService.prewarmConnection(
+                            session: widget.session,
+                            voiceName: val,
+                          );
                         }
                       },
                     ),
@@ -1606,15 +1712,17 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                '📚 ملف الدرس (PDF)',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
+              const Expanded(
+                child: Text(
+                  '📚 ملف الدرس (PDF)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
               IconButton(
                 tooltip: 'تحديث قائمة الملفات',
+                visualDensity: VisualDensity.compact,
                 onPressed: _loadingFiles ? null : _refreshUploadedPdfs,
                 icon: const Icon(Icons.refresh_rounded, size: 20),
               ),
@@ -1649,110 +1757,109 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
             child: _loadingFiles
                 ? const Center(child: CircularProgressIndicator())
                 : _documents.isEmpty
-                    ? Center(
-                        child: Text(
-                          'لا توجد ملفات PDF مرفوعة حالياً.\nاضغط على "رفع ملف PDF جديد" للبدء!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 13,
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: _documents.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final doc = _documents[index];
-                          final isSelected = _selectedDoc?.name == doc.name;
-                          return InkWell(
+                ? Center(
+                    child: Text(
+                      'لا توجد ملفات PDF مرفوعة حالياً.\nاضغط على "رفع ملف PDF جديد" للبدء!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: _documents.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final doc = _documents[index];
+                      final isSelected = _selectedDoc?.name == doc.name;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () {
+                          setState(() {
+                            _selectedDoc = doc;
+                          });
+                          _lessonCache.saveCachedDocuments(
+                            widget.session.email,
+                            _documents,
+                            selectedDocName: doc.name,
+                          );
+                          if (inDrawer) {
+                            Navigator.pop(context);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFFEEF2FF)
+                                : Colors.grey.shade50,
                             borderRadius: BorderRadius.circular(14),
-                            onTap: () {
-                              setState(() {
-                                _selectedDoc = doc;
-                              });
-                              _lessonCache.saveCachedDocuments(
-                                widget.session.email,
-                                _documents,
-                                selectedDocName: doc.name,
-                              );
-                              if (inDrawer) {
-                                Navigator.pop(context);
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(11),
-                              decoration: BoxDecoration(
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF4F46E5)
+                                  : Colors.grey.shade200,
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.picture_as_pdf_rounded,
                                 color: isSelected
-                                    ? const Color(0xFFEEF2FF)
-                                    : Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFF4F46E5)
-                                      : Colors.grey.shade200,
-                                  width: isSelected ? 1.5 : 1,
+                                    ? const Color(0xFF4F46E5)
+                                    : Colors.redAccent,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      doc.displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.w500,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      doc.name,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.picture_as_pdf_rounded,
-                                    color: isSelected
-                                        ? const Color(0xFF4F46E5)
-                                        : Colors.redAccent,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          doc.displayName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontWeight: isSelected
-                                                ? FontWeight.bold
-                                                : FontWeight.w500,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                        Text(
-                                          doc.name,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (isSelected)
-                                    const Icon(
-                                      Icons.check_circle_rounded,
-                                      color: Color(0xFF4F46E5),
-                                      size: 20,
-                                    ),
-                                  IconButton(
-                                    tooltip: 'حذف الملف',
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: _askingTutor
-                                        ? null
-                                        : () => _confirmAndDeletePdf(doc),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: Colors.redAccent,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ],
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: Color(0xFF4F46E5),
+                                  size: 20,
+                                ),
+                              IconButton(
+                                tooltip: 'حذف الملف',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: _askingTutor
+                                    ? null
+                                    : () => _confirmAndDeletePdf(doc),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.redAccent,
+                                  size: 20,
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -1774,6 +1881,8 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
               children: [
                 Text(
                   'حالة المعلم: ${_currentEmotion.arabicLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: emotionColor,
@@ -1803,8 +1912,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                       }).toList(),
                       onChanged: (val) {
                         if (val == null) return;
-                        final found =
-                            _documents.where((d) => d.name == val).firstOrNull;
+                        final found = _documents
+                            .where((d) => d.name == val)
+                            .firstOrNull;
                         if (found != null) {
                           setState(() => _selectedDoc = found);
                           _lessonCache.saveCachedDocuments(
@@ -1827,6 +1937,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
           if (_selectedDoc != null)
             IconButton(
               tooltip: 'حذف الملف الحالي',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
               onPressed: _askingTutor || _uploadingPdf
                   ? null
                   : () => _confirmAndDeletePdf(_selectedDoc!),
@@ -1838,9 +1951,15 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
             ),
           PopupMenuButton<String>(
             tooltip: 'تغيير صوت المعلم',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             initialValue: _selectedVoice,
             onSelected: (val) {
               setState(() => _selectedVoice = val);
+              _ttsService.prewarmConnection(
+                session: widget.session,
+                voiceName: val,
+              );
             },
             itemBuilder: (ctx) => GeminiTtsService.availableVoices.entries
                 .map(
@@ -1985,8 +2104,14 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     final actions = [
       ('➡️ الفقرة التالية', 'اشرح لي الفقرة التالية في الملف واختبرني فيها'),
       ('💡 بسّط الشرح أكثر', 'بسّط لي شرح هذه الفقرة الحالية أكثر بمثال سهل'),
-      ('🧩 اختبرني بسؤال جديد', 'أعطني سؤالاً جديداً عن هذه الفقرة لأختبر نفسي'),
-      ('⏭️ الصفحة التالية', 'انتقل إلى الصفحة التالية واشرح الفقرة الأولى منها'),
+      (
+        '🧩 اختبرني بسؤال جديد',
+        'أعطني سؤالاً جديداً عن هذه الفقرة لأختبر نفسي',
+      ),
+      (
+        '⏭️ الصفحة التالية',
+        'انتقل إلى الصفحة التالية واشرح الفقرة الأولى منها',
+      ),
     ];
 
     return Container(
@@ -2010,8 +2135,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                     color: Color(0xFF3730A3),
                   ),
                 ),
-                onPressed:
-                    _askingTutor ? null : () => _sendQuestion(item.$2),
+                onPressed: _askingTutor ? null : () => _sendQuestion(item.$2),
               ),
             );
           }).toList(),
@@ -2173,14 +2297,14 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                       ),
                     ],
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       FilledButton.tonalIcon(
-                        onPressed: () => _speakText(
-                          res.explanation,
-                          speechId: msgSpeechId,
-                        ),
+                        onPressed: () =>
+                            _speakText(res.explanation, speechId: msgSpeechId),
                         style: FilledButton.styleFrom(
                           visualDensity: VisualDensity.compact,
                           backgroundColor: isMsgSpeaking
@@ -2207,8 +2331,8 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                         label: Text(
                           isMsgSpeaking
                               ? (_generatingTts
-                                  ? 'جاري تجهيز الصوت...'
-                                  : 'إيقاف الصوت')
+                                    ? 'جاري تجهيز الصوت...'
+                                    : 'إيقاف الصوت')
                               : 'استمع للشرح',
                           style: const TextStyle(
                             fontSize: 12,
@@ -2216,8 +2340,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                           ),
                         ),
                       ),
-                      if (res.referencedPage != null) ...[
-                        const SizedBox(width: 8),
+                      if (res.referencedPage != null)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -2239,7 +2362,6 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                             ),
                           ),
                         ),
-                      ],
                     ],
                   ),
                 ],
@@ -2283,10 +2405,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                             onPressed: () {
                               final fullQuizText =
                                   'سؤال الدرس: ${quiz.question}. الاختيارات هي: ${quiz.options.join('، أو ')}';
-                              _speakText(
-                                fullQuizText,
-                                speechId: quizSpeechId,
-                              );
+                              _speakText(fullQuizText, speechId: quizSpeechId);
                             },
                             icon: Icon(
                               isQuizSpeaking
@@ -2357,8 +2476,10 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                               decoration: BoxDecoration(
                                 color: bgColor,
                                 borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: borderColor, width: 1.4),
+                                border: Border.all(
+                                  color: borderColor,
+                                  width: 1.4,
+                                ),
                               ),
                               child: Row(
                                 children: [
@@ -2413,8 +2534,8 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                                 onPressed: _askingTutor
                                     ? null
                                     : () => _sendQuestion(
-                                          'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها',
-                                        ),
+                                        'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها',
+                                      ),
                                 icon: const Icon(
                                   Icons.skip_next_rounded,
                                   size: 18,
@@ -2574,6 +2695,10 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                 widget.onSessionUpdated(updated);
                 if (ctx.mounted) Navigator.pop(ctx);
                 _refreshUploadedPdfs();
+                _ttsService.prewarmConnection(
+                  session: updated,
+                  voiceName: _selectedVoice,
+                );
               },
               child: const Text('حفظ التغييرات'),
             ),

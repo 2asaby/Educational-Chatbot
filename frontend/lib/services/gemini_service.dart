@@ -68,13 +68,13 @@ class GeminiService {
 
   /// Ordered from fastest low-latency models to heavier fallback models.
   static const List<String> fallbackModels = [
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
     'gemini-3.1-flash-lite',
-    'gemini-3.5-flash-lite',
-    'gemini-3.5-flash',
-    'gemini-3.8-flash',
-    'gemini-3.7-flash',
-    'gemini-3.6-flash',
+    'gemini-3.1-flash-lite-preview',
   ];
+
+  final Map<String, DateTime> _modelCooldownUntil = {};
 
   Map<String, String> _buildAuthHeaders(UserSession session) {
     if (session.useOAuthTokenForGemini &&
@@ -493,17 +493,22 @@ class GeminiService {
     };
 
     String? lastError;
+    final now = DateTime.now();
+    final orderedModels = [
+      ...fallbackModels.where((m) {
+        final until = _modelCooldownUntil[m];
+        return until == null || now.isAfter(until);
+      }),
+      ...fallbackModels.where((m) {
+        final until = _modelCooldownUntil[m];
+        return until != null && now.isBefore(until);
+      }),
+    ];
 
-    for (final model in fallbackModels) {
+    for (final model in orderedModels) {
       final uri = Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
       );
-
-      final generationConfig = Map<String, dynamic>.from(baseGenerationConfig);
-      // Give gemini-3.1-flash-lite a small thinking budget so it reads the entire PDF page top-to-bottom instead of skimming 1 topic; newer 3.5+ models reject thinkingBudget.
-      if (model == 'gemini-3.1-flash-lite') {
-        generationConfig['thinkingConfig'] = {'thinkingBudget': 512};
-      }
 
       final payload = {
         'systemInstruction': {
@@ -530,14 +535,14 @@ class GeminiService {
             'threshold': 'BLOCK_MEDIUM_AND_ABOVE',
           },
         ],
-        'generationConfig': generationConfig,
+        'generationConfig': baseGenerationConfig,
       };
 
       final payloadBytes = utf8.encode(jsonEncode(payload));
 
       http.Response response;
       try {
-        final timeoutSeconds = model.contains('lite') ? 18 : 22;
+        final timeoutSeconds = model.contains('lite') ? 12 : 16;
         response = await http
             .post(
               uri,
@@ -550,12 +555,16 @@ class GeminiService {
             .timeout(Duration(seconds: timeoutSeconds));
       } catch (e) {
         lastError = e.toString();
+        _modelCooldownUntil[model] = DateTime.now().add(
+          const Duration(minutes: 3),
+        );
         continue;
       }
 
       final responseText = utf8.decode(response.bodyBytes);
 
       if (response.statusCode == 200) {
+        _modelCooldownUntil.remove(model);
         final bodyMap = jsonDecode(responseText) as Map<String, dynamic>;
         final candidates = bodyMap['candidates'] as List<dynamic>? ?? const [];
         if (candidates.isEmpty) {
@@ -599,6 +608,9 @@ class GeminiService {
           response.statusCode == 503 ||
           response.statusCode == 504) {
         lastError = '(${response.statusCode}) $responseText';
+        _modelCooldownUntil[model] = DateTime.now().add(
+          const Duration(minutes: 3),
+        );
         continue;
       }
 

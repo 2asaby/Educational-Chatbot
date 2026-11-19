@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import '../models/tutor_models.dart';
+import 'app_storage.dart';
 
 class LessonCacheService {
   final Directory? overrideRootDir;
@@ -8,20 +9,7 @@ class LessonCacheService {
   LessonCacheService({this.overrideRootDir});
 
   Directory _getRootDir() {
-    if (overrideRootDir != null) {
-      if (!overrideRootDir!.existsSync()) {
-        overrideRootDir!.createSync(recursive: true);
-      }
-      return overrideRootDir!;
-    }
-    final home = Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        Directory.systemTemp.path;
-    final dir = Directory('$home${Platform.pathSeparator}.kids_ai_tutor');
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
-    }
-    return dir;
+    return AppStorage.getRootDir(overrideDir: overrideRootDir);
   }
 
   File _getCacheFile() {
