@@ -449,8 +449,41 @@ class GeminiTtsService {
       voiceName == 'TaimArabic' ||
       voiceName == 'SalmaArabic';
 
+  /// Returns true when [text] is predominantly English/Latin script so TTS and
+  /// UI can automatically switch to natural English pronunciation and LTR layout.
+  static bool isMostlyEnglish(String text) {
+    final latinCount = RegExp(r'[A-Za-z]').allMatches(text).length;
+    final arabicCount = RegExp(r'[\u0600-\u06FF]').allMatches(text).length;
+    return latinCount >= 3 && latinCount > arabicCount;
+  }
+
   static ({String edgeVoice, String rate, String pitch, String cachePrefix})
-  _edgeVoiceConfig(String voiceName) {
+  _edgeVoiceConfig(String voiceName, {String? sampleText}) {
+    final isEn = sampleText != null && isMostlyEnglish(sampleText);
+    if (isEn) {
+      if (voiceName == 'SalmaArabic') {
+        return (
+          edgeVoice: 'en-US-JennyNeural',
+          rate: '+0%',
+          pitch: '+0Hz',
+          cachePrefix: 'EdgeJenny_en_v1',
+        );
+      }
+      if (voiceName == 'TaimArabic') {
+        return (
+          edgeVoice: 'en-US-AndrewNeural',
+          rate: '+0%',
+          pitch: '+0Hz',
+          cachePrefix: 'EdgeAndrew_en_v1',
+        );
+      }
+      return (
+        edgeVoice: 'en-US-GuyNeural',
+        rate: '+0%',
+        pitch: '+0Hz',
+        cachePrefix: 'EdgeGuy_en_v1',
+      );
+    }
     if (voiceName == 'TaimArabic') {
       return (
         edgeVoice: 'ar-JO-TaimNeural',
@@ -513,7 +546,7 @@ class GeminiTtsService {
           'parts': [
             {
               'text':
-                  'أنت قارئ نصوص صوتي (TTS) فقط لمعلم أطفال ذكي. مهمتك الوحيدة هي قراءة النص العربي الموجود بين علامتي الاقتباس حرفياً وبالكامل بصوت بشري طبيعي، دافئ، واضح، وبسرعة متزنة وهادئة ومناسبة لطفل (لا تتسرع في النطق أبداً). ممنوع الرد على النص أو إضافة أي مقدمة أو تعليق أو خاتمة من عندك.',
+                  'أنت قارئ نصوص صوتي (TTS) فقط لمعلم أطفال ذكي. مهمتك الوحيدة هي قراءة النص الموجود بين علامتي الاقتباس بنفس لغته الأصلية (سواء بالعربية أو بالإنجليزية) حرفياً وبالكامل بصوت بشري طبيعي، دافئ، واضح، وبسرعة متزنة وهادئة ومناسبة لطفل (لا تتسرع في النطق أبداً). ممنوع الرد على النص أو ترجمته أو إضافة أي مقدمة أو تعليق أو خاتمة من عندك.',
             },
           ],
         },
@@ -527,16 +560,16 @@ class GeminiTtsService {
         .replaceAll('"', "'")
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+    final prompt = isMostlyEnglish(safeText)
+        ? 'Read only this exact text verbatim in clear, warm, calm, child-friendly English: "$safeText"'
+        : 'اقرأ هذا النص فقط حرفياً بوضوح وسرعة متزنة وهادئة ومحببة للأطفال: "$safeText"';
     return {
       'clientContent': {
         'turns': [
           {
             'role': 'user',
             'parts': [
-              {
-                'text':
-                    'اقرأ هذا النص فقط حرفياً بوضوح وسرعة متزنة وهادئة ومحببة للأطفال: "$safeText"',
-              },
+              {'text': prompt},
             ],
           },
         ],
@@ -1013,7 +1046,7 @@ class GeminiTtsService {
     String cleanText, {
     String voiceName = 'FastArabic',
   }) async {
-    final cfg = _edgeVoiceConfig(voiceName);
+    final cfg = _edgeVoiceConfig(voiceName, sampleText: cleanText);
     final ttsDir = _getPersistentTtsDir();
     final fileHash = _deterministicFileHash(cfg.cachePrefix, cleanText);
     final cachedFile = File(
@@ -1036,7 +1069,8 @@ class GeminiTtsService {
 
   Future<String> _synthesizeFastArabicMp3(String cleanText) async {
     final ttsDir = _getPersistentTtsDir();
-    final fileHash = _deterministicFileHash('FastArabic', cleanText);
+    final langCode = isMostlyEnglish(cleanText) ? 'en' : 'ar';
+    final fileHash = _deterministicFileHash('FastArabic_$langCode', cleanText);
     final cachedFile = File(
       '${ttsDir.path}${Platform.pathSeparator}tts_$fileHash.mp3',
     );
@@ -1050,7 +1084,7 @@ class GeminiTtsService {
         final uri = Uri.https('translate.googleapis.com', '/translate_tts', {
           'ie': 'UTF-8',
           'client': 'gtx',
-          'tl': 'ar',
+          'tl': langCode,
           'q': chunk,
         });
         return _httpClient
@@ -1446,7 +1480,7 @@ class GeminiTtsService {
     if (!isEdgeArabicVoice(voiceName)) return;
     final cleanText = text.trim();
     if (cleanText.isEmpty) return;
-    final cfg = _edgeVoiceConfig(voiceName);
+    final cfg = _edgeVoiceConfig(voiceName, sampleText: cleanText);
     final split = splitForContinuousBackupSpeech(cleanText);
     if (split.leadIn.isEmpty) return;
     final ttsDir = _getPersistentTtsDir();
@@ -1925,7 +1959,7 @@ class GeminiTtsService {
     required File cacheFile,
     VoidCallback? onPlaybackStarted,
   }) async {
-    final cfg = _edgeVoiceConfig(voiceName);
+    final cfg = _edgeVoiceConfig(voiceName, sampleText: cleanText);
 
     for (var attempt = 0; attempt < 2; attempt++) {
       if (generation != _playbackGeneration) return true;
@@ -2180,7 +2214,7 @@ class GeminiTtsService {
     double fallbackPitch = 1.0,
     VoidCallback? onPlaybackStarted,
   }) async {
-    final cfg = _edgeVoiceConfig(voiceName);
+    final cfg = _edgeVoiceConfig(voiceName, sampleText: cleanText);
     final ttsDir = _getPersistentTtsDir();
     final edgeHash = _deterministicFileHash(cfg.cachePrefix, cleanText);
     final edgeCached = File(

@@ -394,6 +394,22 @@ void main() {
     );
     expect(salmaSsml, contains("xml:lang='ar-EG'"));
     expect(salmaSsml, contains("voice name='ar-EG-SalmaNeural'"));
+
+    expect(
+      GeminiTtsService.isMostlyEnglish('Hello my friend! Today we learn apples.'),
+      isTrue,
+    );
+    expect(
+      GeminiTtsService.isMostlyEnglish('أهلاً بك يا صديقي في درس اليوم!'),
+      isFalse,
+    );
+    final enSsml = GeminiTtsService.buildEdgeSsml(
+      'Hello my friend!',
+      voice: 'en-US-GuyNeural',
+    );
+    expect(enSsml, contains("xml:lang='en-US'"));
+    expect(enSsml, contains("voice name='en-US-GuyNeural'"));
+    expect(GeminiService.systemPrompt, contains('CRITICAL LANGUAGE MATCHING RULE'));
   });
 
   test('GeminiTtsService.splitForContinuousBackupSpeech keeps medium text intact and splits very long text sequentially', () {

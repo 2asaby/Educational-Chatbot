@@ -2240,6 +2240,11 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
         _activeSpeechId == msgSpeechId && (_playingTts || _generatingTts);
     final isQuizSpeaking =
         _activeSpeechId == quizSpeechId && (_playingTts || _generatingTts);
+    final isEnglishExplanation = GeminiTtsService.isMostlyEnglish(
+      res.explanation,
+    );
+    final isEnglishQuiz =
+        quiz != null && GeminiTtsService.isMostlyEnglish(quiz.question);
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2369,6 +2374,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
               const SizedBox(height: 12),
               Text(
                 res.explanation,
+                textDirection: isEnglishExplanation
+                    ? TextDirection.ltr
+                    : TextDirection.rtl,
                 style: const TextStyle(
                   fontSize: 15.5,
                   height: 1.65,
@@ -2392,7 +2400,12 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                           const Text('🧩 ', style: TextStyle(fontSize: 20)),
                           Expanded(
                             child: Text(
-                              'سؤال الدرس: ${quiz.question}',
+                              isEnglishQuiz
+                                  ? 'Quiz: ${quiz.question}'
+                                  : 'سؤال الدرس: ${quiz.question}',
+                              textDirection: isEnglishQuiz
+                                  ? TextDirection.ltr
+                                  : TextDirection.rtl,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14.5,
@@ -2403,8 +2416,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                           IconButton(
                             tooltip: 'قراءة السؤال بالصوت',
                             onPressed: () {
-                              final fullQuizText =
-                                  'سؤال الدرس: ${quiz.question}. الاختيارات هي: ${quiz.options.join('، أو ')}';
+                              final fullQuizText = isEnglishQuiz
+                                  ? 'Quiz question: ${quiz.question}. The options are: ${quiz.options.join(', or ')}'
+                                  : 'سؤال الدرس: ${quiz.question}. الاختيارات هي: ${quiz.options.join('، أو ')}';
                               _speakText(fullQuizText, speechId: quizSpeechId);
                             },
                             icon: Icon(
@@ -2443,7 +2457,15 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                           padding: const EdgeInsets.only(bottom: 8),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            onTap: () {
+                            onTap: () async {
+                              final wasAlreadyCorrect =
+                                  entry.selectedOptionIndex ==
+                                  quiz.correctIndex;
+                              final isLatestMessage =
+                                  _messages.isNotEmpty &&
+                                  identical(_messages.last, entry);
+                              final tappedDocName = _selectedDoc?.name;
+
                               setState(() {
                                 entry.selectedOptionIndex = idx;
                                 _currentEmotion = isCorrect
@@ -2458,14 +2480,42 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                                 );
                               }
                               if (_autoSpeak) {
-                                final feedbackText = isCorrect
-                                    ? 'أحسنت! إجابتك صحيحة تماماً!'
-                                    : 'فكر مرة أخرى! ${quiz.hint}';
-                                _speakText(
+                                final feedbackText = isEnglishQuiz
+                                    ? (isCorrect
+                                          ? 'Great job! Your answer is completely right!'
+                                          : 'Try again! ${quiz.hint}')
+                                    : (isCorrect
+                                          ? 'أحسنت! إجابتك صحيحة تماماً!'
+                                          : 'فكر مرة أخرى! ${quiz.hint}');
+                                await _speakText(
                                   feedbackText,
                                   speechId:
                                       'fb_${entry.timestamp.millisecondsSinceEpoch}_$idx',
                                 );
+                              }
+
+                              if (isCorrect &&
+                                  !wasAlreadyCorrect &&
+                                  isLatestMessage &&
+                                  mounted &&
+                                  !_askingTutor &&
+                                  _selectedDoc?.name == tappedDocName &&
+                                  _messages.isNotEmpty &&
+                                  identical(_messages.last, entry)) {
+                                await Future<void>.delayed(
+                                  Duration(
+                                    milliseconds: _autoSpeak ? 350 : 900,
+                                  ),
+                                );
+                                if (mounted &&
+                                    !_askingTutor &&
+                                    _selectedDoc?.name == tappedDocName &&
+                                    _messages.isNotEmpty &&
+                                    identical(_messages.last, entry)) {
+                                  _sendQuestion(
+                                    'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها',
+                                  );
+                                }
                               }
                             },
                             child: Container(
@@ -2499,6 +2549,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                                   Expanded(
                                     child: Text(
                                       quiz.options[idx],
+                                      textDirection: isEnglishQuiz
+                                          ? TextDirection.ltr
+                                          : TextDirection.rtl,
                                       style: const TextStyle(fontSize: 14),
                                     ),
                                   ),
