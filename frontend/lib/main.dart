@@ -948,8 +948,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
       setState(() {
         _uploadingPdf = true;
         _currentEmotion = AvatarEmotion.thinking;
-        _statusBanner =
-            'جاري رفع الملف "${picked!.filename}" إلى Gemini مباشرة...';
+        _statusBanner = 'جاري رفع الملف "${picked!.filename}"...';
       });
 
       final userEmail = widget.session.email;
@@ -1482,6 +1481,22 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                 ),
                 backgroundColor: const Color(0xFFEEF2FF),
               ),
+            IconButton(
+              tooltip: 'حول التطبيق',
+              visualDensity: isCompact
+                  ? VisualDensity.compact
+                  : VisualDensity.standard,
+              padding: isCompact ? EdgeInsets.zero : null,
+              constraints: isCompact
+                  ? const BoxConstraints(minWidth: 32, minHeight: 32)
+                  : null,
+              onPressed: _showAboutAppDialog,
+              icon: const Icon(
+                Icons.error_outline_rounded,
+                color: Color(0xFF4F46E5),
+                size: 20,
+              ),
+            ),
             IconButton(
               tooltip: 'إعدادات الصوت والحساب',
               visualDensity: isCompact
@@ -2604,6 +2619,61 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
             label: Text(_askingTutor ? 'يفكر...' : 'إرسال'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showAboutAppDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline_rounded, color: Color(0xFF4F46E5)),
+              SizedBox(width: 8),
+              Text(
+                'حول التطبيق',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('🎓', style: TextStyle(fontSize: 36)),
+              SizedBox(height: 8),
+              Text(
+                'المعلم الذكي للأطفال',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E1B4B),
+                ),
+              ),
+              SizedBox(height: 10),
+              Text(
+                'Khaled Elkasaby',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF4F46E5),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
       ),
     );
   }

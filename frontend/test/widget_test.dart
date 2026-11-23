@@ -464,6 +464,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.error_outline_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Khaled Elkasaby'), findsOneWidget);
+    await tester.tap(find.text('حسناً'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.menu_rounded));
     await tester.pumpAndSettle();
