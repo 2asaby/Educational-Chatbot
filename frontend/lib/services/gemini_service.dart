@@ -59,16 +59,14 @@ You are a friendly, patient, engaging AI tutor for children (ages 7 to 10).
    - أما إذا كان الدرس في ملف الـ PDF باللغة **العربية (Arabic)**، فاشرح واكتب السؤال باللغة العربية الواضحة والسهلة والمحببة للأطفال (وخاطب الطالب بعبارات مثل "صديقي" أو "رائع" أو "ممتاز" أو "أحسنت").
 2. اعتمد حصرياً على ملف الـ PDF المرفق في الشرح. إذا رحب بك الطفل (مثل: ازيك، مرحباً، أهلاً، hi، hello)، رد الترحيب بلطف بنفس لغة الملف وابدأ معه من أول صفحة في الدرس. وإذا سأل عن موضوع علمي خارج الملف، اعتذر بلطف واطلب منه العودة لدرس اليوم.
 3. ممنوع التكرار: لا تكرر أبداً نفس الشرح أو نفس الصفحة أو نفس السؤال الذي طرحته في الرسائل السابقة!
-4. نظام الفقرات المتدرج (فقرة بفقرة مع اختبار لكل فقرة):
-   - أنت تشرح لطفل صغير، لذلك **ممنوع تماماً** سرد الصفحة كلها دفعة واحدة في رسالة طويلة!
-   - اقرأ الصفحة الحالية كاملة أولاً، وقسّم كل محتواها من الأعلى للأسفل إلى فقرات قصيرة متسلسلة داخل `page_paragraphs` (من 2 إلى 4 فقرات حسب طول الصفحة، بحيث تضم كل فقرة موضوعاً واحداً صغيراً أو سطرين إلى 3 أسطر فقط، وتغطي الفقرات مجتمعةً كل سطر في الصفحة دون إهمال أي جزء).
-   - في كل رد، اشرح للطفل **فقرة واحدة فقط** (`current_part` من إجمالي `total_parts_in_page`) بلغة بسيطة وممتعة وبنفس لغة ملف الـ PDF.
-   - عندما يجيب الطفل على السؤال أو يطلب المتابعة (مثل: الفقرة التالية، كمل، التالي، مستعد، نعم، next، continue)، انتقل إلى **الفقرة التالية في نفس الصفحة** (`current_part + 1`).
-   - لا تنتقل إلى الصفحة التالية إلا بعد الانتهاء من شرح واختبار **جميع فقرات الصفحة الحالية** (`current_part == total_parts_in_page`)، أو إذا طلب الطفل صراحةً الانتقال للصفحة التالية.
-   - أما إذا سأل سؤالاً أو طلب تبسيطاً، فالتزم بنفس الفقرة الحالية (`current_part`) في نفس الصفحة وبسّطها له أكثر.
-5. حدد دائماً رقم الصفحة (`referenced_page`)، ورقم الفقرة الحالية (`current_part`)، وإجمالي فقرات الصفحة (`total_parts_in_page`) بدقة.
-6. بعد شرح كل فقرة، اطرح سؤالاً تفاعلياً واحداً (`follow_up_quiz`) يختبر الطفل في **هذه الفقرة الحالية فقط** التي شرحتها للتو وبنفس لغة ملف الـ PDF.
-7. التزم تماماً بقواعد الأمان، ولا تناقش أي مواضيع غير تعليمية أو غير مناسبة للأطفال.
+4. نظام استخراج وتغطية الصفحة كاملة في قائمة `page_items` (بدون تفويت أي سؤال أو فقرة!):
+   - اقرأ الصفحة المطلوبة من الأعلى للأسفل وحدد نوعها في `page_type`:
+     • **`assessment` (صفحة أسئلة/تمارين):** احصر **جميع الأسئلة الأصلية الموجودة في الصفحة بالترتيب الدقيق** داخل `page_items` (سواء كانت 3 أو 6 أو 8 أو 12 سؤالاً — **ممنوع تماماً** حذف أو دمج أو تخطي أي سؤال!). لكل سؤال عنصر مستقل يضم مقدمة/إرشاداً قصيراً محبباً للطفل في `explanation`، والسؤال الأصلي وخياراته والإجابة الصحيحة والتلميح في `follow_up_quiz`.
+     • **`lesson` (صفحة شرح عادية):** قسّم كل محتوى الصفحة من الأعلى للأسفل إلى فقرات شرح قصيرة متسلسلة داخل `page_items` (تغطي كل سطر ومعلومة في الصفحة حسب طولها الحقيقي دون حصرها في عدد ثابت)، ولكل فقرة شرح مبسط وممتع في `explanation` وسؤال فهم تفاعلي واحد عليها في `follow_up_quiz`.
+     • **`mixed` (شرح + تمارين في نفس الصفحة):** ضع فقرات الشرح أولاً بالترتيب داخل `page_items`، ثم أتبعها بـ **جميع التمارين والأسئلة** الموجودة في الصفحة واحداً تلو الآخر.
+   - إذا سأل الطفل سؤالاً مخصصاً أو طلب تبسيطاً فقط (بدون طلب صفحة جديدة)، فأعد عنصراً واحداً فقط داخل `page_items` يجيب على سؤاله أو يبسّط الفقرة/السؤال الحالي فقط.
+5. حدد دائماً رقم الصفحة الدقيقة في `referenced_page`، ولا تنتقل أبداً للصفحة التالية قبل إنهاء جميع عناصر الصفحة الحالية (إلا إذا طلب الطالب صراحةً "الصفحة التالية").
+6. التزم تماماً بقواعد الأمان، ولا تناقش أي مواضيع غير تعليمية أو غير مناسبة للأطفال.
 ''';
 
   /// Ordered from fastest low-latency models to heavier fallback models.
@@ -371,31 +369,31 @@ You are a friendly, patient, engaging AI tutor for children (ages 7 to 10).
         if (!forceNextPage && hasMorePartsInCurrentPage) {
           final nextPart = lastPart + 1;
           promptWithProgression =
-              '$studentMessage\n[سياق المحادثة للمعلم: نحن في الصفحة $lastPage وقد قسّمناها إلى $lastTotalParts فقرات، وشرحنا حتى الآن الفقرة $lastPart. ابقَ في نفس الصفحة $lastPage (referenced_page=$lastPage)، واجعل current_part=$nextPart و total_parts_in_page=$lastTotalParts. اشرح الآن للطفل الفقرة رقم $nextPart فقط من هذه الصفحة بأسلوب مبسط ومرح (دون دمج باقي الفقرات)، ثم اطرح سؤالاً (follow_up_quiz) يختبر الطفل في هذه الفقرة رقم $nextPart فقط!]';
+              '$studentMessage\n[سياق المحادثة للمعلم: نحن في الصفحة $lastPage وقد شرحنا حتى الجزء/السؤال $lastPart من $lastTotalParts. ابقَ في نفس الصفحة $lastPage (referenced_page=$lastPage)، وأعد في page_items العناصر المتبقية من الصفحة بدءاً من الجزء/السؤال رقم $nextPart وحتى آخر عنصر في الصفحة بالترتيب دون تخطي أي سؤال!]';
         } else {
           final nextSuggestedPage = lastPage + 1;
           promptWithProgression =
-              '$studentMessage\n[سياق المحادثة للمعلم: لقد أتممنا الصفحات (${coveredPages.join('، ')}). انتقل الآن إلى الصفحة $nextSuggestedPage (referenced_page=$nextSuggestedPage)، واقرأها كاملة وقسّم كل محتواها في page_paragraphs إلى فقرات قصيرة متسلسلة من الأعلى للأسفل (من 2 إلى 4 فقرات تغطي كل سطور الصفحة)، واجعل current_part=1، واشرح الآن للطفل الفقرة الأولى فقط (current_part=1) من صفحة $nextSuggestedPage، ثم اطرح سؤالاً (follow_up_quiz) يختبره في هذه الفقرة الأولى فقط!]';
+              '$studentMessage\n[سياق المحادثة للمعلم: لقد أتممنا الصفحات (${coveredPages.join('، ')}). انتقل الآن إلى الصفحة $nextSuggestedPage (referenced_page=$nextSuggestedPage)، اقرأها كاملة من الأعلى للأسفل، حدد page_type بدقة (assessment إن كانت صفحة أسئلة/تمارين، أو lesson إن كانت شرحاً، أو mixed إن جمعت بينهما)، واستخرج جميع فقرات أو أسئلة الصفحة بالكامل بالترتيب داخل page_items دون تفويت أو دمج أي سؤال (سواء كانت 3 أو 6 أو 10 أسئلة)، وبنفس لغة ملف الـ PDF!]';
         }
       } else {
         final activePart = lastPart ?? 1;
         final partInfo = lastTotalParts != null
-            ? 'الفقرة $activePart من $lastTotalParts'
-            : 'الفقرة الحالية ($activePart)';
+            ? 'الجزء/السؤال $activePart من $lastTotalParts'
+            : 'الجزء الحالي ($activePart)';
         promptWithProgression =
-            '$studentMessage\n[سياق المحادثة للمعلم: أجب عن سؤال أو طلب الطالب بلطف، والتزم بنفس الصفحة الحالية (صفحة $lastPage) وبنفس $partInfo فقط (current_part=$activePart) ولا تنتقل إلى فقرة أو صفحة أخرى. بسّط واشرح هذه الفقرة الحالية فقط بمثال سهل، واطرح سؤالاً (follow_up_quiz) حول نفس هذه الفقرة!]';
+            '$studentMessage\n[سياق المحادثة للمعلم: أجب عن سؤال أو طلب الطالب بلطف، والتزم بنفس الصفحة الحالية (صفحة $lastPage) وبنفس $partInfo فقط ولا تنتقل إلى سؤال أو صفحة أخرى. أعد عنصراً واحداً فقط في page_items يبسّط هذه النقطة بمثال سهل مع سؤال تفاعلي عليها وبنفس لغة الملف!]';
       }
     } else if (recentHistory.isNotEmpty) {
       if (wantsToAdvance) {
         promptWithProgression =
-            '$studentMessage\n[سياق المحادثة للمعلم: انتقل مع الطالب إلى الفقرة التالية في الصفحة الحالية (أو الصفحة التالية إذا انتهت فقرات الصفحة)، واشرح فقرة واحدة قصيرة فقط واختبر الطفل فيها بسؤال تفاعلي.]';
+            '$studentMessage\n[سياق المحادثة للمعلم: انتقل إلى الصفحة التالية واستخرج جميع فقراتها أو أسئلتها بالكامل بالترتيب داخل page_items دون تفويت أي سؤال، وبنفس لغة ملف الـ PDF.]';
       } else {
         promptWithProgression =
-            '$studentMessage\n[سياق المحادثة للمعلم: أجب عن سؤال الطالب وبسّط له الفقرة الحالية فقط في نفس الصفحة مع سؤال تفاعلي عليها.]';
+            '$studentMessage\n[سياق المحادثة للمعلم: أجب عن سؤال الطالب وبسّط له النقطة الحالية فقط في عنصر واحد داخل page_items مع سؤال تفاعلي عليها.]';
       }
     } else {
       promptWithProgression =
-          '$studentMessage\n[سياق المحادثة للمعلم: ابدأ بالصفحة المناسبة في ملف الـ PDF (الصفحة 1 ما لم يذكر الطالب صفحة أخرى)، اقرأ الصفحة كاملة وقسّم كل محتواها في page_paragraphs إلى فقرات قصيرة متسلسلة من الأعلى للأسفل (من 2 إلى 4 فقرات بحيث تضم كل فقرة سطرين أو 3 أسطر فقط وتغطي القائمة كل الصفحة)، واجعل current_part=1، واشرح الآن للطفل الفقرة الأولى فقط (current_part=1) ببساطة ومرح، ثم اطرح سؤالاً (follow_up_quiz) يختبره في هذه الفقرة الأولى فقط!]';
+          '$studentMessage\n[سياق المحادثة للمعلم: ابدأ بالصفحة المناسبة في ملف الـ PDF (الصفحة 1 ما لم يذكر الطالب صفحة أخرى)، اقرأها كاملة من الأعلى للأسفل، حدد page_type بدقة (assessment إن كانت أسئلة/تمارين، أو lesson إن كانت شرحاً، أو mixed إن جمعت بينهما)، واستخرج جميع فقرات أو أسئلة الصفحة بالكامل بالترتيب داخل page_items دون تفويت أو دمج أي سؤال، وبنفس لغة ملف الـ PDF!]';
     }
 
     final currentParts = <Map<String, dynamic>>[];
@@ -427,69 +425,63 @@ You are a friendly, patient, engaging AI tutor for children (ages 7 to 10).
 
     final baseGenerationConfig = <String, dynamic>{
       'temperature': 0.4,
-      'maxOutputTokens': 4096,
+      'maxOutputTokens': 8192,
       'responseMimeType': 'application/json',
       'responseSchema': {
         'type': 'OBJECT',
-        'required': [
-          'referenced_page',
-          'page_paragraphs',
-          'total_parts_in_page',
-          'current_part',
-          'explanation',
-          'avatar_emotion',
-        ],
+        'required': ['referenced_page', 'page_type', 'page_items'],
         'properties': {
           'referenced_page': {
             'type': 'INTEGER',
             'nullable': true,
             'description': 'رقم الصفحة الدقيقة في ملف الـ PDF التي تشرح منها الآن.',
           },
-          'page_paragraphs': {
+          'page_type': {
+            'type': 'STRING',
+            'enum': ['lesson', 'assessment', 'mixed'],
+            'description':
+                'نوع الصفحة: lesson لصفحة شرح عادية، assessment لصفحة أسئلة وتمارين، mixed لصفحة تجمع الشرح والتمارين.',
+          },
+          'page_items': {
             'type': 'ARRAY',
-            'items': {'type': 'STRING'},
             'description':
-                'تقسيم كامل محتوى الصفحة الحالية من الأعلى للأسفل إلى فقرات قصيرة متسلسلة (من 2 إلى 4 فقرات، كل عنصر يمثل فقرة واحدة أو 2-3 أسطر فقط، بحيث تغطي كل الصفحة دون ترك أي جزء).',
-          },
-          'total_parts_in_page': {
-            'type': 'INTEGER',
-            'description':
-                'إجمالي عدد الفقرات التي قسّمت إليها هذه الصفحة (يساوي عدد عناصر page_paragraphs، من 2 إلى 4).',
-          },
-          'current_part': {
-            'type': 'INTEGER',
-            'description':
-                'رقم الفقرة الحالية التي تشرحها وتختبر الطفل فيها الآن فقط (من 1 إلى total_parts_in_page).',
-          },
-          'explanation': {
-            'type': 'STRING',
-            'description':
-                'شرح مبسط ومرح ومشجع لطفل (7-10 سنوات) يشرح الفقرة الحالية فقط (رقم current_part من page_paragraphs) بالتفصيل اللطيف مع أمثلتها دون سرد باقي فقرات الصفحة في نفس الرسالة.',
-          },
-          'avatar_emotion': {
-            'type': 'STRING',
-            'enum': [
-              'happy',
-              'talking',
-              'thinking',
-              'celebrating',
-              'encouraging',
-            ],
-            'description':
-                'حالة الشخصية الكرتونية: happy, talking, thinking, celebrating, encouraging',
-          },
-          'follow_up_quiz': {
-            'type': 'OBJECT',
-            'nullable': true,
-            'required': ['question', 'options', 'correct_index', 'hint'],
-            'properties': {
-              'question': {'type': 'STRING'},
-              'options': {
-                'type': 'ARRAY',
-                'items': {'type': 'STRING'},
+                'قائمة كاملة ومرتبة لجميع فقرات الشرح أو جميع الأسئلة الأصلية في الصفحة من الأعلى للأسفل بدون حذف أو تفويت أي سؤال.',
+            'items': {
+              'type': 'OBJECT',
+              'required': ['explanation', 'avatar_emotion'],
+              'properties': {
+                'explanation': {
+                  'type': 'STRING',
+                  'description':
+                      'شرح مبسط ومرح للفقرة (أو مقدمة وإرشاد لطيف للسؤال في صفحات التمارين) بنفس لغة ملف الـ PDF.',
+                },
+                'avatar_emotion': {
+                  'type': 'STRING',
+                  'enum': [
+                    'happy',
+                    'talking',
+                    'thinking',
+                    'celebrating',
+                    'encouraging',
+                  ],
+                  'description':
+                      'حالة الشخصية الكرتونية: happy, talking, thinking, celebrating, encouraging',
+                },
+                'follow_up_quiz': {
+                  'type': 'OBJECT',
+                  'nullable': true,
+                  'required': ['question', 'options', 'correct_index', 'hint'],
+                  'properties': {
+                    'question': {'type': 'STRING'},
+                    'options': {
+                      'type': 'ARRAY',
+                      'items': {'type': 'STRING'},
+                    },
+                    'correct_index': {'type': 'INTEGER'},
+                    'hint': {'type': 'STRING'},
+                  },
+                },
               },
-              'correct_index': {'type': 'INTEGER'},
-              'hint': {'type': 'STRING'},
             },
           },
         },
@@ -604,7 +596,32 @@ You are a friendly, patient, engaging AI tutor for children (ages 7 to 10).
           );
         }
         final parsedJson = jsonDecode(rawText) as Map<String, dynamic>;
-        return TutorResponse.fromJson(parsedJson);
+        var parsed = TutorResponse.fromJson(parsedJson);
+
+        // Preserve current part/total position when answering a custom question
+        // or simplifying without advancing to a new page.
+        if (!isAdvanceRequest(studentMessage) &&
+            parsed.remainingPageParts.isEmpty) {
+          int? prevPart;
+          int? prevTotal;
+          String? prevPageType;
+          for (final entry in previousHistory) {
+            final r = entry.tutorResponse;
+            if (r != null) {
+              if (r.currentPart != null) prevPart = r.currentPart;
+              if (r.totalPartsInPage != null) prevTotal = r.totalPartsInPage;
+              if (r.pageType != null) prevPageType = r.pageType;
+            }
+          }
+          if (prevPart != null && prevTotal != null) {
+            parsed = parsed.copyWith(
+              currentPart: prevPart,
+              totalPartsInPage: prevTotal,
+              pageType: parsed.pageType ?? prevPageType,
+            );
+          }
+        }
+        return parsed;
       }
 
       if (response.statusCode == 400 ||

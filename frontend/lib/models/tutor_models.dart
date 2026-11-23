@@ -99,6 +99,8 @@ class TutorResponse {
   final int? totalPartsInPage;
   final AvatarEmotion avatarEmotion;
   final QuizQuestion? followUpQuiz;
+  final String? pageType; // 'lesson', 'assessment', or 'mixed'
+  final List<TutorResponse> remainingPageParts;
 
   const TutorResponse({
     required this.explanation,
@@ -107,6 +109,8 @@ class TutorResponse {
     this.totalPartsInPage,
     required this.avatarEmotion,
     this.followUpQuiz,
+    this.pageType,
+    this.remainingPageParts = const [],
   });
 
   bool get hasMorePartsInPage =>
@@ -114,6 +118,28 @@ class TutorResponse {
       totalPartsInPage != null &&
       totalPartsInPage! > 1 &&
       currentPart! < totalPartsInPage!;
+
+  TutorResponse copyWith({
+    String? explanation,
+    int? referencedPage,
+    int? currentPart,
+    int? totalPartsInPage,
+    AvatarEmotion? avatarEmotion,
+    QuizQuestion? followUpQuiz,
+    String? pageType,
+    List<TutorResponse>? remainingPageParts,
+  }) {
+    return TutorResponse(
+      explanation: explanation ?? this.explanation,
+      referencedPage: referencedPage ?? this.referencedPage,
+      currentPart: currentPart ?? this.currentPart,
+      totalPartsInPage: totalPartsInPage ?? this.totalPartsInPage,
+      avatarEmotion: avatarEmotion ?? this.avatarEmotion,
+      followUpQuiz: followUpQuiz ?? this.followUpQuiz,
+      pageType: pageType ?? this.pageType,
+      remainingPageParts: remainingPageParts ?? this.remainingPageParts,
+    );
+  }
 
   /// Removes unwanted "يا بطل" / "أنت بطل" phrasing while keeping real words like "بطلاقة".
   static String sanitizeText(String input) {
@@ -145,6 +171,41 @@ class TutorResponse {
   }
 
   factory TutorResponse.fromJson(Map<String, dynamic> json) {
+    final page = (json['referenced_page'] as num?)?.toInt();
+    final pageType = json['page_type']?.toString();
+    final rawItems = json['page_items'];
+
+    if (rawItems is List && rawItems.isNotEmpty) {
+      final validItems = rawItems.whereType<Map<String, dynamic>>().toList();
+      if (validItems.isNotEmpty) {
+        final total = validItems.length;
+        final built = <TutorResponse>[];
+        for (var i = 0; i < total; i++) {
+          final item = validItems[i];
+          built.add(
+            TutorResponse(
+              explanation: sanitizeText((item['explanation'] ?? '').toString()),
+              referencedPage: page,
+              currentPart: i + 1,
+              totalPartsInPage: total,
+              avatarEmotion: AvatarEmotion.fromString(
+                item['avatar_emotion']?.toString(),
+              ),
+              followUpQuiz: item['follow_up_quiz'] is Map<String, dynamic>
+                  ? QuizQuestion.fromJson(
+                      item['follow_up_quiz'] as Map<String, dynamic>,
+                    )
+                  : null,
+              pageType: pageType,
+            ),
+          );
+        }
+        return built.first.copyWith(
+          remainingPageParts: built.length > 1 ? built.sublist(1) : const [],
+        );
+      }
+    }
+
     final rawPart = (json['current_part'] as num?)?.toInt();
     final rawTotal = (json['total_parts_in_page'] as num?)?.toInt();
     final safeTotal = rawTotal != null && rawTotal >= 1 ? rawTotal : rawPart;
@@ -153,7 +214,7 @@ class TutorResponse {
         : null;
     return TutorResponse(
       explanation: sanitizeText((json['explanation'] ?? '').toString()),
-      referencedPage: (json['referenced_page'] as num?)?.toInt(),
+      referencedPage: page,
       currentPart: safePart,
       totalPartsInPage: safeTotal,
       avatarEmotion:
@@ -163,6 +224,7 @@ class TutorResponse {
               json['follow_up_quiz'] as Map<String, dynamic>,
             )
           : null,
+      pageType: pageType,
     );
   }
 
@@ -173,6 +235,7 @@ class TutorResponse {
         'total_parts_in_page': totalPartsInPage,
         'avatar_emotion': avatarEmotion.name,
         'follow_up_quiz': followUpQuiz?.toJson(),
+        if (pageType != null) 'page_type': pageType,
       };
 }
 

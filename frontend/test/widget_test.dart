@@ -498,4 +498,65 @@ void main() {
     );
     expect(androidRoot.existsSync(), isTrue);
   });
+
+  test('TutorResponse parses full-page assessment page_items (6 questions) without skipping', () {
+    final json = {
+      'referenced_page': 2,
+      'page_type': 'assessment',
+      'page_items': List.generate(
+        6,
+        (i) => {
+          'explanation': 'Question ${i + 1} guidance',
+          'avatar_emotion': 'encouraging',
+          'follow_up_quiz': {
+            'question': 'Solve item ${i + 1}?',
+            'options': ['A', 'B', 'C'],
+            'correct_index': 0,
+            'hint': 'Hint ${i + 1}',
+          },
+        },
+      ),
+    };
+
+    final first = TutorResponse.fromJson(json);
+    expect(first.referencedPage, 2);
+    expect(first.pageType, 'assessment');
+    expect(first.currentPart, 1);
+    expect(first.totalPartsInPage, 6);
+    expect(first.hasMorePartsInPage, isTrue);
+    expect(first.remainingPageParts.length, 5);
+    expect(first.remainingPageParts.last.currentPart, 6);
+    expect(first.remainingPageParts.last.totalPartsInPage, 6);
+    expect(first.remainingPageParts.last.hasMorePartsInPage, isFalse);
+
+    final tempDir = Directory.systemTemp.createTempSync('page_items_cache_');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+    final cache = LessonCacheService(overrideRootDir: tempDir);
+    const nextPrompt = 'اشرح لي الفقرة التالية في الملف واختبرني فيها';
+
+    for (final part in first.remainingPageParts) {
+      cache.savePreparedResponse(
+        docName: 'files/worksheet1',
+        lastCoveredPage: 2,
+        lastCoveredPart: part.currentPart! - 1,
+        prompt: nextPrompt,
+        response: part,
+      );
+    }
+
+    for (var prev = 1; prev <= 5; prev++) {
+      final cachedNext = cache.getCachedResponse(
+        docName: 'files/worksheet1',
+        lastCoveredPage: 2,
+        lastCoveredPart: prev,
+        prompt: nextPrompt,
+      );
+      expect(cachedNext, isNotNull);
+      expect(cachedNext!.currentPart, prev + 1);
+      expect(cachedNext.totalPartsInPage, 6);
+      expect(cachedNext.pageType, 'assessment');
+    }
+  });
 }

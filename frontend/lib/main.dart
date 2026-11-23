@@ -674,9 +674,6 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
   bool _loadingFiles = false;
   bool _uploadingPdf = false;
   bool _askingTutor = false;
-  bool _prefetchingNext = false;
-  String? _inFlightPrefetchKey;
-  Future<TutorResponse?>? _inFlightPrefetchFuture;
   String? _statusBanner;
 
   // Voice / TTS State
@@ -1102,80 +1099,36 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
     });
   }
 
-  String _buildPrefetchKey(String docName, int lastPage, int lastPart) =>
-      '$docName::$lastPage::$lastPart';
-
-  bool _isNextParagraphPresetPrompt(String text) {
-    final trimmed = text.trim();
-    return trimmed == 'اشرح لي الفقرة التالية في الملف واختبرني فيها' ||
-        trimmed ==
-            'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها';
-  }
-
-  /// Silently prepares the next lesson paragraph/page in the background
-  /// while the child reads and answers the current quiz, so clicking "Next" is instant!
-  Future<void> _prefetchNextLessonStepInBackground(
-    UploadedPdfDocument doc,
-    List<ChatEntry> currentHistory,
-  ) async {
-    final lastPage = _getLastCoveredPage(currentHistory);
-    final lastPart = _getLastCoveredPart(currentHistory);
-    final prefetchKey = _buildPrefetchKey(doc.name, lastPage, lastPart);
-    if (_prefetchingNext && _inFlightPrefetchKey == prefetchKey) return;
+  /// Saves all remaining parts/questions extracted from a single full-page
+  /// Gemini call into local disk cache so advancing within the page is instant
+  /// (0.00s) and consumes ZERO extra Gemini API calls.
+  void _cacheRemainingPageParts(String docName, TutorResponse firstPart) {
+    final page = firstPart.referencedPage;
+    if (page == null || firstPart.remainingPageParts.isEmpty) return;
 
     const nextPrompt = 'اشرح لي الفقرة التالية في الملف واختبرني فيها';
     const nextQuizPrompt =
         'أجبت بشكل صحيح! اشرح لي الفقرة التالية من الدرس واختبرني فيها';
 
-    final alreadyCached = _lessonCache.getCachedResponse(
-      docName: doc.name,
-      lastCoveredPage: lastPage,
-      lastCoveredPart: lastPart,
-      prompt: nextPrompt,
-    );
-    if (alreadyCached != null) return;
-
-    _prefetchingNext = true;
-    _inFlightPrefetchKey = prefetchKey;
-
-    Future<TutorResponse?> runPrefetch() async {
-      try {
-        final prefetchedReply = await _geminiService.askTutor(
-          session: widget.session,
-          pdfDocument: doc,
-          studentMessage: nextPrompt,
-          previousHistory: currentHistory,
-        );
-        _lessonCache.savePreparedResponse(
-          docName: doc.name,
-          lastCoveredPage: lastPage,
-          lastCoveredPart: lastPart,
-          prompt: nextPrompt,
-          response: prefetchedReply,
-        );
-        _lessonCache.savePreparedResponse(
-          docName: doc.name,
-          lastCoveredPage: lastPage,
-          lastCoveredPart: lastPart,
-          prompt: nextQuizPrompt,
-          response: prefetchedReply,
-        );
-        return prefetchedReply;
-      } catch (_) {
-        // Silent background prefetch
-        return null;
-      } finally {
-        if (_inFlightPrefetchKey == prefetchKey) {
-          _prefetchingNext = false;
-          _inFlightPrefetchKey = null;
-          _inFlightPrefetchFuture = null;
-        }
-      }
+    for (final part in firstPart.remainingPageParts) {
+      final partNum = part.currentPart;
+      if (partNum == null || partNum <= 1) continue;
+      final prevPart = partNum - 1;
+      _lessonCache.savePreparedResponse(
+        docName: docName,
+        lastCoveredPage: page,
+        lastCoveredPart: prevPart,
+        prompt: nextPrompt,
+        response: part,
+      );
+      _lessonCache.savePreparedResponse(
+        docName: docName,
+        lastCoveredPage: page,
+        lastCoveredPart: prevPart,
+        prompt: nextQuizPrompt,
+        response: part,
+      );
     }
-
-    final future = runPrefetch();
-    _inFlightPrefetchFuture = future;
-    await future;
   }
 
   Future<void> _sendQuestion([String? presetQuestion]) async {
@@ -1233,10 +1186,6 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
           voiceName: _selectedVoice,
         );
       }
-      _prefetchNextLessonStepInBackground(
-        currentDoc,
-        List<ChatEntry>.from(_messages),
-      );
       return;
     }
 
@@ -1257,78 +1206,64 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
 
     try {
       TutorResponse reply;
-      final currentPrefetchKey = _buildPrefetchKey(
-        currentDoc.name,
-        lastPage,
-        lastPart,
-      );
-      TutorResponse? joinedPrefetch;
-      if (_isNextParagraphPresetPrompt(text) &&
-          _inFlightPrefetchKey == currentPrefetchKey &&
-          _inFlightPrefetchFuture != null) {
-        joinedPrefetch = await _inFlightPrefetchFuture;
-      }
-      if (joinedPrefetch != null) {
-        reply = joinedPrefetch;
-      } else {
-        try {
+      try {
+        reply = await _geminiService.askTutor(
+          session: widget.session,
+          pdfDocument: currentDoc,
+          studentMessage: text,
+          previousHistory: historySnapshot,
+        );
+      } catch (e) {
+        final errStr = e.toString();
+        final isExpiredOrMissing =
+            errStr.contains('(403)') || errStr.contains('(404)');
+        final backupPath = currentDoc.localBackupPath;
+        if (isExpiredOrMissing &&
+            backupPath != null &&
+            File(backupPath).existsSync()) {
+          final backupBytes = await File(backupPath).readAsBytes();
+          final reuploaded = await _geminiService.uploadPdfBytes(
+            session: widget.session,
+            filename: currentDoc.displayName,
+            bytes: backupBytes,
+          );
+          final refreshedDoc = reuploaded.copyWith(
+            localBackupPath: backupPath,
+            ownerEmail: userEmail,
+          );
+          final oldDocName = currentDoc.name;
+          _lessonCache.replaceExpiredDocId(
+            userEmail: userEmail,
+            oldDocName: oldDocName,
+            newDoc: refreshedDoc,
+          );
+          final oldMessages = _historyByDoc.remove(oldDocName);
+          if (oldMessages != null) {
+            _historyByDoc[refreshedDoc.name] = oldMessages;
+          }
+          if (mounted) {
+            setState(() {
+              _documents = _documents
+                  .map((d) => d.name == oldDocName ? refreshedDoc : d)
+                  .toList();
+              _selectedDoc = refreshedDoc;
+            });
+          }
+          currentDoc = refreshedDoc;
+
           reply = await _geminiService.askTutor(
             session: widget.session,
             pdfDocument: currentDoc,
             studentMessage: text,
             previousHistory: historySnapshot,
           );
-        } catch (e) {
-          final errStr = e.toString();
-          final isExpiredOrMissing =
-              errStr.contains('(403)') || errStr.contains('(404)');
-          final backupPath = currentDoc.localBackupPath;
-          if (isExpiredOrMissing &&
-              backupPath != null &&
-              File(backupPath).existsSync()) {
-            final backupBytes = await File(backupPath).readAsBytes();
-            final reuploaded = await _geminiService.uploadPdfBytes(
-              session: widget.session,
-              filename: currentDoc.displayName,
-              bytes: backupBytes,
-            );
-            final refreshedDoc = reuploaded.copyWith(
-              localBackupPath: backupPath,
-              ownerEmail: userEmail,
-            );
-            final oldDocName = currentDoc.name;
-            _lessonCache.replaceExpiredDocId(
-              userEmail: userEmail,
-              oldDocName: oldDocName,
-              newDoc: refreshedDoc,
-            );
-            final oldMessages = _historyByDoc.remove(oldDocName);
-            if (oldMessages != null) {
-              _historyByDoc[refreshedDoc.name] = oldMessages;
-            }
-            if (mounted) {
-              setState(() {
-                _documents = _documents
-                    .map((d) => d.name == oldDocName ? refreshedDoc : d)
-                    .toList();
-                _selectedDoc = refreshedDoc;
-              });
-            }
-            currentDoc = refreshedDoc;
-
-            reply = await _geminiService.askTutor(
-              session: widget.session,
-              pdfDocument: currentDoc,
-              studentMessage: text,
-              previousHistory: historySnapshot,
-            );
-          } else {
-            rethrow;
-          }
+        } else {
+          rethrow;
         }
       }
 
-      // Save prepared response to disk so next run or restart is instantaneous
+      // Save this response AND all remaining parts/questions of the page locally
+      // so moving through every item on the page uses 0 extra API calls!
       _lessonCache.savePreparedResponse(
         docName: currentDoc.name,
         lastCoveredPage: lastPage,
@@ -1336,6 +1271,7 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
         prompt: text,
         response: reply,
       );
+      _cacheRemainingPageParts(currentDoc.name, reply);
 
       if (!mounted) return;
       final newEntry = ChatEntry.tutor(reply);
@@ -1356,12 +1292,6 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
           voiceName: _selectedVoice,
         );
       }
-
-      // Silently pre-prepare the NEXT page in the background!
-      _prefetchNextLessonStepInBackground(
-        currentDoc,
-        List<ChatEntry>.from(_messages),
-      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -2358,7 +2288,9 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
                           child: Text(
                             res.currentPart != null &&
                                     res.totalPartsInPage != null
-                                ? '📖 صفحة ${res.referencedPage} • فقرة ${res.currentPart}/${res.totalPartsInPage}'
+                                ? (res.pageType == 'assessment'
+                                      ? '📝 صفحة ${res.referencedPage} • سؤال ${res.currentPart}/${res.totalPartsInPage}'
+                                      : '📖 صفحة ${res.referencedPage} • فقرة ${res.currentPart}/${res.totalPartsInPage}')
                                 : '📖 صفحة ${res.referencedPage}',
                             style: const TextStyle(
                               fontSize: 12,
