@@ -141,6 +141,58 @@ class LessonCacheService {
     return others;
   }
 
+  /// Merges locally saved PDFs with currently active remote Gemini files.
+  /// Locally known files are ALWAYS preserved after Gemini's 48-hour cloud expiry
+  /// so the user can review all saved lessons/quizzes until they explicitly delete them.
+  static List<UploadedPdfDocument> mergeSyncedDocuments({
+    required String userEmail,
+    required List<UploadedPdfDocument> localDocs,
+    required List<UploadedPdfDocument> activeDocs,
+    required Set<String> otherUserDocs,
+    required Set<String> deletedDocs,
+  }) {
+    final myTag = UploadedPdfDocument.ownerHashForEmail(userEmail);
+    final activeByName = {for (final a in activeDocs) a.name: a};
+    final merged = <UploadedPdfDocument>[];
+    final seenNames = <String>{};
+
+    for (final doc in localDocs) {
+      if (deletedDocs.contains(doc.name)) continue;
+      final active = activeByName[doc.name];
+      if (active != null) {
+        merged.add(
+          doc.copyWith(
+            uri: active.uri,
+            sizeBytes: active.sizeBytes ?? doc.sizeBytes,
+            ownerTag: active.ownerTag ?? doc.ownerTag,
+          ),
+        );
+      } else {
+        // Keep even when expired from Gemini Files API (48h) so all saved
+        // explanations, quizzes, and audio remain available for review forever.
+        merged.add(doc);
+      }
+      seenNames.add(doc.name);
+    }
+
+    // Sync any newly uploaded PDFs from this same Gmail user on another device.
+    for (final active in activeDocs) {
+      if (seenNames.contains(active.name) ||
+          deletedDocs.contains(active.name)) {
+        continue;
+      }
+      final belongsToMe =
+          active.ownerTag == myTag ||
+          (active.ownerTag == null && !otherUserDocs.contains(active.name));
+      if (belongsToMe) {
+        merged.insert(0, active.copyWith(ownerEmail: userEmail));
+        seenNames.add(active.name);
+      }
+    }
+
+    return merged;
+  }
+
   /// Returns document names explicitly deleted by this user so untagged remote docs don't reappear.
   Set<String> loadDeletedDocNames(String userEmail) {
     final normEmail = _normalizeEmail(userEmail);

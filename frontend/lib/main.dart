@@ -842,61 +842,17 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
       final activeDocs = await _geminiService.listUploadedPdfs(widget.session);
       if (!mounted) return;
       final localDocs = _lessonCache.loadCachedDocuments(userEmail);
-      final myTag = UploadedPdfDocument.ownerHashForEmail(userEmail);
-
-      List<UploadedPdfDocument> nextDocs;
-      if (localDocs.isEmpty && normEmail == 'student@gmail.com') {
-        nextDocs = activeDocs
-            .where((d) => d.ownerTag == null || d.ownerTag == myTag)
-            .map((d) => d.copyWith(ownerEmail: userEmail))
-            .toList();
-      } else {
-        // Keep local docs belonging to this user (refreshing active metadata,
-        // and dropping remote-only synced docs if deleted from another device).
-        final activeByName = {for (final a in activeDocs) a.name: a};
-        final merged = <UploadedPdfDocument>[];
-        final seenNames = <String>{};
-
-        for (final doc in localDocs) {
-          final active = activeByName[doc.name];
-          if (active != null) {
-            merged.add(
-              doc.copyWith(
-                uri: active.uri,
-                sizeBytes: active.sizeBytes ?? doc.sizeBytes,
-                ownerTag: active.ownerTag ?? doc.ownerTag,
-              ),
-            );
-            seenNames.add(doc.name);
-          } else if (doc.localBackupPath != null &&
-              File(doc.localBackupPath!).existsSync()) {
-            // Keep locally backed-up files so auto-reupload works after 48h
-            merged.add(doc);
-            seenNames.add(doc.name);
-          }
-        }
-
-        // Sync any newly uploaded PDFs from this same Gmail user on another device (Mobile <-> Windows)
-        final otherUserDocs = _lessonCache.loadDocNamesOwnedByOtherUsers(
-          userEmail,
-        );
-        final deletedDocs = _lessonCache.loadDeletedDocNames(userEmail);
-        for (final active in activeDocs) {
-          if (seenNames.contains(active.name) ||
-              deletedDocs.contains(active.name)) {
-            continue;
-          }
-          final belongsToMe =
-              active.ownerTag == myTag ||
-              (active.ownerTag == null && !otherUserDocs.contains(active.name));
-          if (belongsToMe) {
-            merged.insert(0, active.copyWith(ownerEmail: userEmail));
-            seenNames.add(active.name);
-          }
-        }
-
-        nextDocs = merged;
-      }
+      final otherUserDocs = _lessonCache.loadDocNamesOwnedByOtherUsers(
+        userEmail,
+      );
+      final deletedDocs = _lessonCache.loadDeletedDocNames(userEmail);
+      final nextDocs = LessonCacheService.mergeSyncedDocuments(
+        userEmail: userEmail,
+        localDocs: localDocs,
+        activeDocs: activeDocs,
+        otherUserDocs: otherUserDocs,
+        deletedDocs: deletedDocs,
+      );
 
       setState(() {
         _documents = nextDocs;
@@ -1255,6 +1211,10 @@ class _TutorHomeScreenState extends State<TutorHomeScreen> {
             pdfDocument: currentDoc,
             studentMessage: text,
             previousHistory: historySnapshot,
+          );
+        } else if (isExpiredOrMissing) {
+          throw Exception(
+            'انتهت صلاحية النسخة السحابية لهذا الملف بعد 48 ساعة، لكن جميع دروسك وأسئلتك المحفوظة ما زالت موجودة للمراجعة! لتوليد صفحات جديدة أعد رفع ملف الـ PDF.',
           );
         } else {
           rethrow;

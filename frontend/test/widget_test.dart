@@ -566,4 +566,40 @@ void main() {
       expect(cachedNext.pageType, 'assessment');
     }
   });
+
+  test('LessonCacheService.mergeSyncedDocuments keeps expired files until user deletes them', () {
+    const email = 'eng.el2asabynew@gmail.com';
+    final tag = UploadedPdfDocument.ownerHashForEmail(email);
+    const expiredRemoteDoc = UploadedPdfDocument(
+      name: 'files/expired_48h',
+      displayName: 'Primary 1.pdf',
+      uri: 'https://generativelanguage.googleapis.com/v1beta/files/expired_48h',
+      ownerEmail: email,
+    );
+    const deletedDoc = UploadedPdfDocument(
+      name: 'files/user_deleted',
+      displayName: 'Old.pdf',
+      uri: 'https://generativelanguage.googleapis.com/v1beta/files/user_deleted',
+      ownerEmail: email,
+    );
+    final newRemoteDoc = UploadedPdfDocument(
+      name: 'files/new_from_mobile',
+      displayName: 'New Lesson.pdf',
+      uri: 'https://generativelanguage.googleapis.com/v1beta/files/new_from_mobile',
+      ownerTag: tag,
+    );
+
+    final merged = LessonCacheService.mergeSyncedDocuments(
+      userEmail: email,
+      localDocs: const [expiredRemoteDoc, deletedDoc],
+      activeDocs: [newRemoteDoc],
+      otherUserDocs: const {},
+      deletedDocs: const {'files/user_deleted'},
+    );
+
+    expect(merged.map((d) => d.name), [
+      'files/new_from_mobile',
+      'files/expired_48h',
+    ]);
+  });
 }
